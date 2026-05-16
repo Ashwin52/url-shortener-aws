@@ -4,6 +4,7 @@ import boto3
 import random
 import string
 import time
+import json
 
 app = FastAPI()
 
@@ -11,6 +12,10 @@ app = FastAPI()
 dynamodb = boto3.resource('dynamodb', region_name='ap-south-1')
 table = dynamodb.Table('url-shortener')
 cache_table = dynamodb.Table('url-shortener-cache')
+
+# SQS connection
+sqs = boto3.client('sqs', region_name='ap-south-1')
+SQS_URL = "https://sqs.ap-south-1.amazonaws.com/517169952624/url-click-events"
 
 # Base62 character set
 BASE62 = string.ascii_letters + string.digits
@@ -21,14 +26,13 @@ def generate_short_code(length=6):
 # Request model
 class URLRequest(BaseModel):
     long_url: str
-    expiry_days: int = 30  # default 30 days expiry
+    expiry_days: int = 30
 
 # ─── Rate Limiter ───────────────────────────────────────
 def check_rate_limit(ip: str):
     now = int(time.time())
-    window = 60  # 1 minute window
-    max_requests = 10  # max 10 requests per minute
-
+    window = 60
+    max_requests = 10
     key = f"ratelimit#{ip}"
     window_start = now - window
 
@@ -37,9 +41,7 @@ def check_rate_limit(ip: str):
         if 'Item' in response:
             item = response['Item']
             timestamps = item.get('timestamps', [])
-            # Filter only recent timestamps
             timestamps = [t for t in timestamps if t > window_start]
-
             if len(timestamps) >= max_requests:
                 raise HTTPException(
                     status_code=429,
@@ -49,7 +51,6 @@ def check_rate_limit(ip: str):
         else:
             timestamps = [now]
 
-        # Save updated timestamps
         cache_table.put_item(Item={
             'short_code': key,
             'timestamps': timestamps,
@@ -58,7 +59,7 @@ def check_rate_limit(ip: str):
     except HTTPException:
         raise
     except Exception:
-        pass  # fail open — don't block if rate limiter errors
+        pass
 
 # ─── Cache Helpers ──────────────────────────────────────
 def get_from_cache(code: str):
@@ -75,21 +76,35 @@ def save_to_cache(code: str, long_url: str, ttl_seconds: int = 300):
         cache_table.put_item(Item={
             'short_code': code,
             'long_url': long_url,
-            'ttl': int(time.time()) + ttl_seconds  # 5 min cache
+            'ttl': int(time.time()) + ttl_seconds
         })
     except Exception:
         pass
+
+# ─── SQS Event ──────────────────────────────────────────
+def send_click_event(code: str, long_url: str, ip: str):
+    try:
+        event = {
+            "short_code": code,
+            "long_url": long_url,
+            "ip": ip,
+            "timestamp": int(time.time())
+        }
+        sqs.send_message(
+            QueueUrl=SQS_URL,
+            MessageBody=json.dumps(event)
+        )
+    except Exception:
+        pass  # fail open
 
 # ─── Routes ─────────────────────────────────────────────
 
 # POST /shorten
 @app.post("/shorten")
 def shorten_url(request: URLRequest, req: Request):
-    # Rate limit check
     client_ip = req.client.host
     check_rate_limit(client_ip)
 
-    # Calculate expiry
     expiry_time = int(time.time()) + (request.expiry_days * 86400)
 
     for _ in range(5):
@@ -117,14 +132,15 @@ def shorten_url(request: URLRequest, req: Request):
 
 # GET /{code}
 @app.get("/{code}")
-def redirect_url(code: str):
+def redirect_url(code: str, req: Request):
     # 1. Check cache first
     cached = get_from_cache(code)
     if cached:
+        send_click_event(code, cached, req.client.host)
         return {
             "long_url": cached,
             "short_code": code,
-            "source": "cache"  # shows cache is working!
+            "source": "cache"
         }
 
     # 2. Cache miss — hit DynamoDB
@@ -135,12 +151,14 @@ def redirect_url(code: str):
 
     long_url = response['Item']['long_url']
 
-    # 3. Save to cache for next time
+    # 3. Save to cache
     save_to_cache(code, long_url)
+
+    # 4. Send click event to SQS
+    send_click_event(code, long_url, req.client.host)
 
     return {
         "long_url": long_url,
         "short_code": code,
-        "source": "database"  # first hit always from DB
+        "source": "database"
     }
-
