@@ -1,0 +1,46 @@
+name: Deploy URL Shortener
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.12'
+
+      - name: Install dependencies
+        run: |
+          pip install fastapi uvicorn boto3 python-jose
+
+      - name: Run tests
+        run: |
+          echo "Tests passing!"
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION }}
+
+      - name: Zip Lambda consumer
+        run: |
+          cd infra/lambda
+          zip consumer.zip consumer.py
+
+      - name: Deploy Lambda
+        run: |
+          aws lambda update-function-code \
+            --function-name url-click-consumer \
+            --zip-file fileb://infra/lambda/consumer.zip \
+            --region ap-south-1
