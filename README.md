@@ -4,11 +4,11 @@ A production-inspired URL shortener built on AWS — designed with system design
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ---
 
-## ⚙️ Tech Stack
+## Tech Stack
 
 | Layer | Technology |
 |---|---|
@@ -20,7 +20,7 @@ A production-inspired URL shortener built on AWS — designed with system design
 | CI/CD | GitHub Actions |
 | Frontend | React |
 
-## 🚀 Features (Progressive Build)
+## Features (Progressive Build)
 
 - [x] POST /shorten — Generate short code with Base62 encoding
 - [x] GET /{code} — Redirect to original URL
@@ -34,7 +34,7 @@ A production-inspired URL shortener built on AWS — designed with system design
 
 ---
 
-## 🧠 System Design Concepts Covered
+## System Design Concepts Covered
 
 - **Hashing + Encoding** — Base62 over MD5/UUID, 56B+ combinations
 - **Collision Handling** — Conditional write + retry pattern
@@ -46,7 +46,7 @@ A production-inspired URL shortener built on AWS — designed with system design
 
 ---
 
-## 📦 Local Setup
+## Local Setup
 
 ```bash
 # Clone repo
@@ -63,7 +63,7 @@ aws configure
 python3 -m uvicorn backend.main:app --reload
 ```
 
-## 🧪 API Testing
+## API Testing
 
 ```bash
 # Shorten a URL
@@ -77,7 +77,7 @@ curl "http://localhost:8000/{short_code}"
 
 ---
 
-## 📊 AWS Services Used
+## AWS Services Used
 
 - **DynamoDB** — Primary store, PAY_PER_REQUEST billing
 - **SQS** — Click event queue (replaces Kinesis, cost-effective)
@@ -89,7 +89,7 @@ curl "http://localhost:8000/{short_code}"
 
 ---
 
-## 👨‍💻 Author
+## Author
 
 **Ashwin** — ECE Student | Aspiring Cloud & DevOps Engineer
 
